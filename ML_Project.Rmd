@@ -1,0 +1,100 @@
+---
+title: "Coursera Machine Learning Project"
+author: "Rubén Artime for Coursera"
+date: "Sunday, February 22, 2015"
+output: html_document
+---
+
+# Introduction
+The goal of the project is to predict the manner in which 6 participants do exercises that are measured with devices such as Jawbone Up, Nike FuelBand, and Fitbit.Data is collected from (this source)[http://groupware.les.inf.puc-rio.br/har].
+In this report I build several models with a training data set to predict the performance of the exercide measured in the classe variable.
+
+
+## Libraries
+```{r,results='hide',warning=FALSE}
+library(caret)
+library(VIM)
+library(gridExtra)
+library(knitr)
+opts_chunk$set(cache=TRUE,echo=TRUE)
+```
+The data used can be downloaded from:
+Training set [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+Testing set [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+```{r,results='hide'}
+set.seed(12345)
+trainingData <- read.csv("pml-training.csv")
+testData <- read.csv("pml-testing.csv")
+```
+
+## Some exploratory analysis
+Let's see the variables contained in the data
+```{r}
+names(trainingData)
+```
+There are 160 variables, too many for this brief analysis.To simplify I am going to remove some of them from the data.
+Now I have 52 variables
+```{r}
+ignored_column_regx <- "^(kurtosis|skewness|min|max|stddev|total|var|avg|ampl|num_window|cvtd_timestamp|X|new_window)"
+data <- trainingData[,grep(ignored_column_regx,names(trainingData),invert=T)]
+```
+
+### Create training dataset and validation dataset
+I create the partitions for training and validation. Remove variable 52 (the outcome) from both to separate the predictors from the outcome
+```{r}
+#data <- data[,grep("^(num_window|cvtd_timestamp|X|new_window)",names(data),invert=T)]
+inTraining <- createDataPartition(y=data$classe,p=.75,list=F) 
+training <- data[inTraining,]
+validation <- data[-inTraining,]
+
+train_predictors <- training[,-c(52)]
+train_outcome <- training[,c(52)]
+
+validation_pred <- validation[,-c(52)]
+validation_outcome <- validation[,c(52)]
+```
+
+## Model selection
+In this parragraph we are going to evaluate three different models.First of all we use Principal Components Analysis to reduce complexity
+
+```{r}
+train_predictors <- training[,-c(1,52)]
+train_outcome <- training[,c(52)]
+preProcess <- preProcess(train_predictors,method=c("center","scale","pca"),thresh=.95)
+train_pred_preprocessed <- predict(preProcess,train_predictors)
+validation_pred_preprocessed <- predict(preProcess,validation_pred[,-c(1)])
+```
+Cross-validation with 3 fold
+```{r}
+myCtrl <- trainControl(method="cv",number=3)
+```
+First classification method: a tree
+```{r,warning=FALSE}
+modTree <- train(train_outcome~.,method="rpart",data=train_pred_preprocessed,trControl=myCtrl)
+modTree$results 
+```
+We observe that with a tree classification we obtain 39% accuracy
+
+Second classification method: lda
+```{r,warning=FALSE}
+modLDA <- train(train_outcome~.,method="lda",data=train_pred_preprocessed,trControl=myCtrl)
+modLDA$results
+```
+LDA gives us a 52% accuracy
+Third classification method:random forest
+```{r,warning=FALSE}
+modRF <- train(train_outcome~.,data=train_pred_preprocessed,method="rf",trControl=myCtrl,allowParalell=T)
+modRF
+confusionMatrix(predict(modRF,validation_pred_preprocessed),validation_outcome)
+```
+We conclude that random forest gives us the best performance with 98% of accuracy
+
+## Predictions
+We use the random forest model (best accuracy obtained) to predict the results on the test set
+```{r}
+test_predictors <- testData[,names(train_predictors)]
+test_predictors_preprocessed <- predict(preProcess,test_predictors)
+predict(modRF,test_predictors_preprocessed)
+
+```
